@@ -37,7 +37,6 @@ def create_project(
 def get_projects(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
- # 🔥 ADD THIS
     db: Session = Depends(get_db)
 ):
     db.execute(text(f'SET search_path TO "{request.state.tenant}"'))
