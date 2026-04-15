@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.db.dependencies import get_db
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from datetime import datetime
 
 security = HTTPBearer()
 
@@ -22,16 +23,20 @@ def create_project(
             detail=f"User with role '{request.state.role}' is not allowed to create projects"
         )
 
-    db.execute(text(f'SET search_path TO "{request.state.tenant}"'))
-
     db.execute(text("""
-        INSERT INTO projects (name)
-        VALUES (:name)
-    """), {"name": name})
+    INSERT INTO projects (name, created_by, created_at, updated_at)
+    VALUES (:name, :created_by, :created_at, :updated_at)
+"""), {
+    "name": name,
+    "created_by": request.state.user_id,
+    "created_at": datetime.utcnow(),
+    "updated_at": datetime.utcnow()
+})
 
     db.commit()
 
     return {"message": "Project created successfully"}
+
 
 @router.get("/")
 def get_projects(

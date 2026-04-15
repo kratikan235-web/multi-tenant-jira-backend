@@ -5,6 +5,7 @@ from sqlalchemy import text
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.schemas.user import AcceptInviteRequest, SignupRequest
+from app.db.base import Base
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -14,6 +15,13 @@ security = HTTPBearer()
 def signup(data: SignupRequest, db: Session = Depends(get_db)):
 
     schema = data.tenant_name.lower()
+
+    existing = db.execute(text("""
+    SELECT * FROM public.tenants WHERE name = :name
+"""), {"name": data.tenant_name}).fetchone()
+
+    if existing:
+      raise HTTPException(status_code=400, detail="Tenant already exists")
 
     # 1. CREATE SCHEMA
     db.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
@@ -27,32 +35,17 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
         "schema": schema
     })
 
-    # 3. CREATE TABLES
-    db.execute(text(f"""
-        CREATE TABLE IF NOT EXISTS "{schema}".users (
-            id SERIAL PRIMARY KEY,
-            email VARCHAR(255) UNIQUE NOT NULL,
-            password VARCHAR(255),
-            role VARCHAR(20) DEFAULT 'USER'
-        )
-    """))
+    db.commit()  # commit before using connection
 
-    db.execute(text(f"""
-        CREATE TABLE IF NOT EXISTS "{schema}".projects (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255)
-        )
-    """))
+    # 3. CREATE TABLES USING CONNECTION
+    engine = db.get_bind()
 
-    db.execute(text(f"""
-        CREATE TABLE IF NOT EXISTS "{schema}".tasks (
-            id SERIAL PRIMARY KEY,
-            title VARCHAR(255),
-            status VARCHAR(50)
-        )
-    """))
+    with engine.connect() as conn:
+        conn.execute(text(f'SET search_path TO "{schema}"'))
+        Base.metadata.create_all(bind=conn)
+        conn.commit()
 
-    # 4. CREATE ADMIN
+    # 4. CREATE ADMIN (use same schema explicitly)
     db.execute(text(f"""
         INSERT INTO "{schema}".users (email, password, role)
         VALUES (:email, :password, 'ADMIN')
@@ -64,7 +57,6 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Signup successful"}
-
 
 @router.post("/invite")
 def invite_user(
