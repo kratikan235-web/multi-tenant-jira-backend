@@ -1,13 +1,15 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.auth.jwt import create_access_token
 from app.db.dependencies import get_db
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
+
 @router.post("/login")
-def login(email: str, password: str, tenant: str, db: Session = Depends(get_db)):
+def login(request: Request, email: str, password: str, tenant: str, db: Session = Depends(get_db)):
 
     # 1. CHECK TENANT FROM PUBLIC DB
     tenant_data = db.execute(text("""
@@ -40,7 +42,7 @@ def login(email: str, password: str, tenant: str, db: Session = Depends(get_db))
     # 5. CREATE TOKEN
     token = create_access_token({
         "user_id": user.id,
-        "tenant": schema,
+        "tenant": request.state.tenant,
         "role": user.role
     })
 
@@ -48,3 +50,24 @@ def login(email: str, password: str, tenant: str, db: Session = Depends(get_db))
         "access_token": token,
         "token_type": "bearer"
     }
+
+
+@router.get("/users")
+def get_users(
+    db=Depends(get_db),
+    user=Depends(get_current_user)
+):
+    users = db.execute(text("""
+        SELECT id, email, role
+        FROM users
+        ORDER BY id
+    """)).fetchall()
+
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "role": u.role
+        }
+        for u in users
+    ]
