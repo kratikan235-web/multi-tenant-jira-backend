@@ -1,10 +1,11 @@
 from app.db.dependencies import get_db
 from app.schemas.task import TaskCreate, TaskUpdate
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from app.db.dependencies import get_db
 from fastapi.security import HTTPBearer
 from app.models.task import Task
 from app.core.security import get_current_user
+from sqlalchemy import text
 
 security = HTTPBearer()
 
@@ -39,7 +40,7 @@ def get_tasks(
     tasks = db.query(Task).filter(Task.project_id == project_id).all()
     return tasks
 
-# Get Task by task_id
+# Update Task by task_id
 @router.put("/{task_id}")
 def update_task(
     task_id: int,
@@ -61,9 +62,6 @@ def update_task(
     if data.status:
         task.status = data.status
 
-    if data.assigned_to:
-        task.assigned_to = data.assigned_to
-
     db.commit()
     db.refresh(task)
 
@@ -78,7 +76,27 @@ def assign_task(
     user=Depends(get_current_user)
 ):
 
+    # ROLE CHECK
+    if user.role not in ["ADMIN", "PM"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Only ADMIN or PM can assign tasks"
+        )
+
     task = db.query(Task).filter(Task.id == task_id).first()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # check user exists
+    assigned_user = db.execute(
+        text("SELECT id FROM users WHERE id = :id"),
+        {"id": user_id}
+    ).fetchone()
+
+    if not assigned_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     task.assigned_to = user_id
 
     db.commit()

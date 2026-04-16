@@ -9,7 +9,4 @@ class  SignupRequest(BaseModel):
 class AcceptInviteRequest(BaseModel):
     email: str
     password: str
-    tenant: str
-
-
 

@@ -12,7 +12,6 @@ class TaskUpdate(BaseModel):
     title: Optional[str]
     description: Optional[str]
     status: Optional[str]
-    assigned_to: Optional[str]
 
 
 class TaskResponse(BaseModel):

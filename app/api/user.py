@@ -6,10 +6,13 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.schemas.user import AcceptInviteRequest, SignupRequest
 from app.db.base import Base
+from fastapi.responses import RedirectResponse
+
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 security = HTTPBearer()
+
 
 @router.post("/signup")
 def signup(data: SignupRequest, db: Session = Depends(get_db)):
@@ -56,8 +59,9 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
 
     db.commit()
 
-    return {"message": "Signup successful"}
+    return {"message": "Signup successful", "tenant_url": f"http://{schema}.localhost:8004"}
 
+# send invite
 @router.post("/invite")
 def invite_user(
     request: Request,
@@ -70,7 +74,7 @@ def invite_user(
     if request.state.role != "ADMIN":
         raise HTTPException(status_code=403, detail="Only ADMIN can invite users")
 
-    # SET SCHEMA (IMPORTANT - don’t rely blindly on get_db)
+    # SET SCHEMA
     db.execute(text(f'SET search_path TO "{request.state.tenant}"'))
 
     # Insert user
@@ -88,13 +92,15 @@ def invite_user(
         "message": f"User {email} invited as {role}"
     }
 
+# Accept invite
 @router.post("/accept-invite")
 def accept_invite(
-    data: AcceptInviteRequest,   # USE SCHEMA
+    request: Request,
+    data: AcceptInviteRequest,
     db: Session = Depends(get_db)
 ):
-    # SET SCHEMA
-    db.execute(text(f'SET search_path TO "{data.tenant}"'))
+    # tenant from URL (secure)
+    tenant = request.state.tenant
 
     user = db.execute(text("""
         SELECT id, password FROM users WHERE email = :email
@@ -117,4 +123,4 @@ def accept_invite(
 
     db.commit()
 
-    return {"message": "Account activated successfully"}
+    return {"message": f"Account activated in tenant '{tenant}'"}
