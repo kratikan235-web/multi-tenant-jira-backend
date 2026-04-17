@@ -11,12 +11,12 @@ class Task(Base):
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
 
-    status = Column(String, default="TODO")   # TODO / IN_PROGRESS / DONE
+    status = Column(String, default="TODO")
     priority = Column(String, default="MEDIUM")
 
-    project_id = Column(Integer)  # no FK
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
 
-    created_by = Column(Integer, ForeignKey("users.id"))
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
