@@ -23,13 +23,15 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if not host:
             raise HTTPException(status_code=400, detail="Invalid host")
 
-        subdomain = host.split(".")[0]
+        # remove port (localhost:8000 → localhost)
+        host = host.split(":")[0]
 
-        # Base domain (no tenant)
-        if subdomain == "localhost":
-            request.state.tenant = None
-        else:
-            request.state.tenant = subdomain
+        parts = host.split(".")
+
+        # subdomain only if exists (pn.localhost → pn)
+        subdomain = parts[0] if len(parts) > 1 else None
+
+        request.state.tenant = subdomain
 
         # Public APIs skip auth
         if is_public_path(request.url.path):
@@ -47,14 +49,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
         url_tenant = request.state.tenant
 
         # CORE FIX
-        if token_tenant != url_tenant:
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "error": "TenantMismatch",
-                    "message": f"Token belongs to '{token_tenant}' but request is for '{url_tenant}'"
-                }
-            )
+        if url_tenant:
+            if token_tenant != url_tenant:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": "TenantMismatch",
+                        "message": f"Token belongs to '{token_tenant}' but request is for '{url_tenant}'"
+                    }
+                )
+            request.state.tenant = url_tenant
+
+        # If no subdomain → fallback to token
+        else:
+            request.state.tenant = token_tenant
 
         request.state.user_id = payload.get("user_id")
         request.state.role = payload.get("role")
