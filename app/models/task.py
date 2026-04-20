@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, ForeignKey
 from app.db.base import Base
 from sqlalchemy import DateTime
 from datetime import datetime
+from sqlalchemy.orm import relationship
+
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -21,3 +23,7 @@ class Task(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # relationships
+    creator = relationship("User", foreign_keys=[created_by])
+    assignee = relationship("User", foreign_keys=[assigned_to])

@@ -74,8 +74,14 @@ def invite_user(
     if request.state.role != "ADMIN":
         raise HTTPException(status_code=403, detail="Only ADMIN can invite users")
 
-    # SET SCHEMA
-    db.execute(text(f'SET search_path TO "{request.state.tenant}"'))
+    # check if user already exists
+    existing = db.execute(
+        text("SELECT id FROM users WHERE email = :email"),
+        {"email": email}
+    ).fetchone()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
 
     # Insert user
     db.execute(text("""
@@ -123,4 +129,8 @@ def accept_invite(
 
     db.commit()
 
-    return {"message": f"Account activated in tenant '{tenant}'"}
+    return {
+        "message": "Account activated successfully",
+        "tenant": tenant,
+        "email": data.email
+    }

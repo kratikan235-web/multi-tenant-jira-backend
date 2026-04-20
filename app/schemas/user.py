@@ -6,6 +6,16 @@ class  SignupRequest(BaseModel):
     email: str
     password: str
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+    tenant: str
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    role: str
+
 class AcceptInviteRequest(BaseModel):
     email: str
     password: str

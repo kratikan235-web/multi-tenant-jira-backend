@@ -4,12 +4,21 @@ from sqlalchemy import text
 from app.auth.jwt import create_access_token
 from app.db.dependencies import get_db
 from app.core.security import get_current_user
+from app.schemas.user import UserResponse, LoginRequest
+from typing import List
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/login")
-def login(request: Request, email: str, password: str, tenant: str, db: Session = Depends(get_db)):
+def login(
+    data: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    email = data.email
+    password = data.password
+    tenant = data.tenant
 
     # 1. CHECK TENANT FROM PUBLIC DB
     tenant_data = db.execute(text("""
@@ -42,7 +51,7 @@ def login(request: Request, email: str, password: str, tenant: str, db: Session 
     # 5. CREATE TOKEN
     token = create_access_token({
         "user_id": user.id,
-        "tenant": request.state.tenant,
+        "tenant": schema,
         "role": user.role
     })
 
@@ -52,7 +61,7 @@ def login(request: Request, email: str, password: str, tenant: str, db: Session 
     }
 
 
-@router.get("/users")
+@router.get("/users", response_model=List[UserResponse])
 def get_users(
     db=Depends(get_db),
     user=Depends(get_current_user)
@@ -63,11 +72,4 @@ def get_users(
         ORDER BY id
     """)).fetchall()
 
-    return [
-        {
-            "id": u.id,
-            "email": u.email,
-            "role": u.role
-        }
-        for u in users
-    ]
+    return users
