@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createProject, getProjectDetail, getProjects, Project } from "../../api/projects";
+import { createProject, deleteProject, getProjectDetail, getProjects, Project, updateProject } from "../../api/projects";
 import { useAuth } from "../../state/auth/AuthContext";
 import { Toast } from "../components/Toast";
 import { Drawer } from "../components/Drawer";
@@ -19,6 +19,9 @@ export function ProjectsPage() {
   const [projectDetail, setProjectDetail] = useState<Project | null>(null);
   const [projectDetailErr, setProjectDetailErr] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -124,9 +127,11 @@ export function ProjectsPage() {
                   setProjectDetail(null);
                   setProjectDetailErr(null);
                   setLoadingDetail(true);
+                  setEditName("");
                   try {
                     const detail = await getProjectDetail(p.id);
                     setProjectDetail(detail);
+                    setEditName(detail.name ?? "");
                   } catch (e: any) {
                     setProjectDetailErr(e?.message ?? "Failed to load project details");
                   } finally {
@@ -162,9 +167,35 @@ export function ProjectsPage() {
         title={`Project details #${selectedProjectId ?? ""}`}
         onClose={() => setSelectedProjectId(null)}
         footer={
-          <button className="btn" onClick={() => setSelectedProjectId(null)}>
-            Done
-          </button>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            {canCreate ? (
+              <button
+                className="btn"
+                disabled={deleting || selectedProjectId == null}
+                onClick={async () => {
+                  if (selectedProjectId == null) return;
+                  const ok = window.confirm("Delete this project? All tasks in it will also be deleted.");
+                  if (!ok) return;
+                  setDeleting(true);
+                  setProjectDetailErr(null);
+                  try {
+                    await deleteProject(selectedProjectId);
+                    setSelectedProjectId(null);
+                    await load();
+                  } catch (e: any) {
+                    setProjectDetailErr(e?.message ?? "Failed to delete project");
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            ) : null}
+            <button className="btn" onClick={() => setSelectedProjectId(null)}>
+              Done
+            </button>
+          </div>
         }
       >
         {loadingDetail ? <div className="muted">Loading…</div> : null}
@@ -179,6 +210,38 @@ export function ProjectsPage() {
                 </div>
               </div>
             </div>
+
+            {canCreate ? (
+              <div className="card" style={{ boxShadow: "none" }}>
+                <div className="cardBody" style={{ padding: 12 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12 }}>Edit project (ADMIN/PM)</div>
+                  <div style={{ height: 10 }} />
+                  <label className="label">Name</label>
+                  <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  <div style={{ height: 10 }} />
+                  <button
+                    className="btn btnPrimary"
+                    disabled={saving || selectedProjectId == null || !editName.trim()}
+                    onClick={async () => {
+                      if (selectedProjectId == null) return;
+                      setSaving(true);
+                      setProjectDetailErr(null);
+                      try {
+                        const updated = await updateProject(selectedProjectId, { name: editName.trim() });
+                        setProjectDetail(updated);
+                        await load();
+                      } catch (e: any) {
+                        setProjectDetailErr(e?.message ?? "Failed to update project");
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="card" style={{ boxShadow: "none" }}>

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listUsers } from "../../api/auth";
 import { getProjects, Project } from "../../api/projects";
-import { assignTask, changeStatus, createTask, getTaskDetail, getTasks, Task, TaskStatus } from "../../api/tasks";
+import { assignTask, changeStatus, createTask, deleteTask, getTaskDetail, getTasks, Task, TaskStatus, updateTask } from "../../api/tasks";
 import { useAuth } from "../../state/auth/AuthContext";
 import { Toast } from "../components/Toast";
 import { Drawer } from "../components/Drawer";
@@ -46,6 +46,10 @@ export function TasksPage() {
   const [loadingTaskDetail, setLoadingTaskDetail] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | "">("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadBootstrap = async () => {
     setLoading(true);
@@ -226,10 +230,14 @@ export function TasksPage() {
                       setTaskDetailErr(null);
                       setLoadingTaskDetail(true);
                       setSelectedAssigneeId(t.assigned_to?.id ?? "");
+                      setEditTitle(t.title ?? "");
+                      setEditDescription(t.description ?? "");
                       try {
                         const detail = await getTaskDetail(t.id);
                         setTaskDetail(detail);
                         setSelectedAssigneeId(detail.assigned_to?.id ?? "");
+                        setEditTitle(detail.title ?? "");
+                        setEditDescription(detail.description ?? "");
                       } catch (e: any) {
                         setTaskDetailErr(e?.message ?? "Failed to load task details");
                       } finally {
@@ -299,9 +307,33 @@ export function TasksPage() {
         title={`Task details #${selectedTaskId ?? ""}`}
         onClose={() => setSelectedTaskId(null)}
         footer={
-          <button className="btn" onClick={() => setSelectedTaskId(null)}>
-            Done
-          </button>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button
+              className="btn"
+              disabled={deleting || selectedTaskId == null}
+              onClick={async () => {
+                if (selectedTaskId == null) return;
+                const ok = window.confirm("Delete this task?");
+                if (!ok) return;
+                setDeleting(true);
+                setTaskDetailErr(null);
+                try {
+                  await deleteTask(selectedTaskId);
+                  setSelectedTaskId(null);
+                  if (projectId != null) await loadTasks(projectId);
+                } catch (e: any) {
+                  setTaskDetailErr(e?.message ?? "Failed to delete task");
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+            <button className="btn" onClick={() => setSelectedTaskId(null)}>
+              Done
+            </button>
+          </div>
         }
       >
         {loadingTaskDetail ? <div className="muted">Loading…</div> : null}
@@ -344,6 +376,55 @@ export function TasksPage() {
                 <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{taskDetail.description ?? "No description"}</div>
               </div>
             </div>
+
+            {canCreate ? (
+              <div className="card" style={{ boxShadow: "none" }}>
+                <div className="cardBody" style={{ padding: 12 }}>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Edit task (ADMIN/PM)
+                  </div>
+                  <div style={{ height: 8 }} />
+                  <div>
+                    <label className="label">Title</label>
+                    <input className="input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                  </div>
+                  <div style={{ height: 10 }} />
+                  <div>
+                    <label className="label">Description</label>
+                    <textarea
+                      className="input"
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                  <div style={{ height: 10 }} />
+                  <button
+                    className="btn btnPrimary"
+                    disabled={saving || selectedTaskId == null || !editTitle.trim()}
+                    onClick={async () => {
+                      if (selectedTaskId == null) return;
+                      setSaving(true);
+                      setTaskDetailErr(null);
+                      try {
+                        const updated = await updateTask(selectedTaskId, {
+                          title: editTitle.trim(),
+                          description: editDescription.trim() ? editDescription.trim() : ""
+                        });
+                        setTaskDetail(updated);
+                        if (projectId != null) await loadTasks(projectId);
+                      } catch (e: any) {
+                        setTaskDetailErr(e?.message ?? "Failed to update task");
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="card" style={{ boxShadow: "none" }}>

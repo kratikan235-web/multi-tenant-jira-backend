@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class  SignupRequest(BaseModel):
@@ -19,4 +20,9 @@ class UserResponse(BaseModel):
 class AcceptInviteRequest(BaseModel):
     email: str
     password: str
+
+
+class UserUpdateRequest(BaseModel):
+    email: Optional[str] = None
+    role: Optional[str] = None
 

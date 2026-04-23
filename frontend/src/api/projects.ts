@@ -22,3 +22,13 @@ export async function getProjectDetail(projectId: number) {
   return data;
 }
 
+export async function updateProject(projectId: number, patch: { name?: string }) {
+  const { data } = await http.put<Project>(`/projects/${projectId}`, patch);
+  return data;
+}
+
+export async function deleteProject(projectId: number) {
+  const { data } = await http.delete<{ message: string }>(`/projects/${projectId}`);
+  return data;
+}
+
