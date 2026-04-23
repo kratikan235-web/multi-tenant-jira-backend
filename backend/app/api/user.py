@@ -4,7 +4,7 @@ from app.db.dependencies import get_db
 from sqlalchemy import text
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import APIRouter, Depends, HTTPException, Request
-from app.schemas.user import AcceptInviteRequest, SignupRequest
+from app.schemas.user import AcceptInviteRequest, SignupRequest, UserUpdateRequest
 from app.schemas.user_detail import UserDetailResponse
 from app.db.base import Base
 from fastapi.responses import RedirectResponse
@@ -191,3 +191,130 @@ def get_user_detail(
         "role": user.role,
         "activated": bool(user.password),
     }
+
+
+@router.put("/{user_id}", response_model=UserDetailResponse)
+def update_user(
+    user_id: int,
+    data: UserUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    # Permissions:
+    # - ADMIN can update anyone
+    # - PM can update role for non-ADMIN users
+    # - USER can only update self email (optional)
+    role = (getattr(current_user, "role", None) or request.state.role or "").upper()
+    caller_id = int(getattr(current_user, "id", None) or request.state.user_id or 0)
+
+    target = db.execute(
+        text("SELECT id, email, role, password FROM users WHERE id = :id"),
+        {"id": user_id},
+    ).fetchone()
+
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target_role = (target.role or "").upper()
+
+    if role not in ["ADMIN", "PM"] and caller_id != int(user_id):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    if role == "PM" and target_role == "ADMIN":
+        raise HTTPException(status_code=403, detail="PM cannot modify ADMIN user")
+
+    if role not in ["ADMIN", "PM"] and data.role is not None:
+        raise HTTPException(status_code=403, detail="Not allowed to change role")
+
+    updates = {}
+    if data.email is not None:
+        updates["email"] = data.email.strip()
+    if data.role is not None:
+        updates["role"] = data.role.strip().upper()
+
+    if updates:
+        # email uniqueness
+        if "email" in updates:
+            existing = db.execute(
+                text("SELECT id FROM users WHERE lower(email) = lower(:email) AND id != :id"),
+                {"email": updates["email"], "id": user_id},
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=400, detail="Email already in use")
+
+        db.execute(
+            text(
+                """
+                UPDATE users
+                SET email = COALESCE(:email, email),
+                    role = COALESCE(:role, role)
+                WHERE id = :id
+                """
+            ),
+            {"id": user_id, "email": updates.get("email"), "role": updates.get("role")},
+        )
+        db.commit()
+
+    updated = db.execute(
+        text("SELECT id, email, role, password FROM users WHERE id = :id"),
+        {"id": user_id},
+    ).fetchone()
+
+    return {
+        "id": updated.id,
+        "email": updated.email,
+        "role": updated.role,
+        "activated": bool(updated.password),
+    }
+
+
+@router.delete("/{user_id}")
+def delete_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    role = (getattr(current_user, "role", None) or request.state.role or "").upper()
+    caller_id = int(getattr(current_user, "id", None) or request.state.user_id or 0)
+
+    if role not in ["ADMIN", "PM"]:
+        raise HTTPException(status_code=403, detail="Only ADMIN or PM can delete users")
+
+    if int(user_id) == caller_id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+
+    target = db.execute(
+        text("SELECT id, role FROM users WHERE id = :id"),
+        {"id": user_id},
+    ).fetchone()
+
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target_role = (target.role or "").upper()
+    if role == "PM" and target_role == "ADMIN":
+        raise HTTPException(status_code=403, detail="PM cannot delete ADMIN user")
+
+    # Block delete if user owns projects or created tasks; null out assignments.
+    owns_projects = db.execute(
+        text("SELECT 1 FROM projects WHERE created_by = :id LIMIT 1"),
+        {"id": user_id},
+    ).fetchone()
+    if owns_projects:
+        raise HTTPException(status_code=400, detail="User cannot be deleted: owns projects")
+
+    created_tasks = db.execute(
+        text("SELECT 1 FROM tasks WHERE created_by = :id LIMIT 1"),
+        {"id": user_id},
+    ).fetchone()
+    if created_tasks:
+        raise HTTPException(status_code=400, detail="User cannot be deleted: created tasks")
+
+    # Remove as assignee from tasks
+    db.execute(text("UPDATE tasks SET assigned_to = NULL WHERE assigned_to = :id"), {"id": user_id})
+    db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+    db.commit()
+
+    return {"message": "User deleted"}

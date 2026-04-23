@@ -49,3 +49,8 @@ export async function changeStatus(taskId: number, status: TaskStatus) {
   return data;
 }
 
+export async function deleteTask(taskId: number) {
+  const { data } = await http.delete<{ message: string }>(`/tasks/${taskId}`);
+  return data;
+}
+

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listUsers } from "../../api/auth";
 import { inviteUser } from "../../api/users";
-import { getUserDetail, UserDetail } from "../../api/userDetails";
+import { deleteUser, getUserDetail, updateUser, UserDetail } from "../../api/userDetails";
 import { computeApiBase } from "../../config/apiBase";
 import { useAuth } from "../../state/auth/AuthContext";
 import { Toast } from "../components/Toast";
@@ -27,6 +27,23 @@ export function DashboardPage() {
   const [userDetail, setUserDetail] = useState<UserDetail | null>(null);
   const [userDetailErr, setUserDetailErr] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [editRole, setEditRole] = useState("USER");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const canManageUsers = role === "ADMIN" || role === "PM";
+
+  const refreshUsers = async () => {
+    setLoadingUsers(true);
+    setErrorUsers(null);
+    try {
+      const data = await listUsers();
+      setUsers(data);
+    } catch (e: any) {
+      setErrorUsers(e?.message ?? "Failed to load users");
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
 
   const tenantHint = useMemo(() => `Tenant: ${tenant ?? "—"}`, [tenant]);
 
@@ -145,9 +162,11 @@ export function DashboardPage() {
                   setUserDetail(null);
                   setUserDetailErr(null);
                   setLoadingDetail(true);
+                  setEditRole((u.role ?? "USER").toString().toUpperCase());
                   try {
                     const detail = await getUserDetail(u.id);
                     setUserDetail(detail);
+                    setEditRole((detail.role ?? "USER").toString().toUpperCase());
                   } catch (e: any) {
                     setUserDetailErr(e?.message ?? "Failed to load user details");
                   } finally {
@@ -183,9 +202,35 @@ export function DashboardPage() {
         title={`User details #${selectedUserId ?? ""}`}
         onClose={() => setSelectedUserId(null)}
         footer={
-          <button className="btn" onClick={() => setSelectedUserId(null)}>
-            Done
-          </button>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            {canManageUsers ? (
+              <button
+                className="btn"
+                disabled={deleting || selectedUserId == null}
+                onClick={async () => {
+                  if (selectedUserId == null) return;
+                  const ok = window.confirm("Delete this user? (May fail if they own projects/created tasks.)");
+                  if (!ok) return;
+                  setDeleting(true);
+                  setUserDetailErr(null);
+                  try {
+                    await deleteUser(selectedUserId);
+                    setSelectedUserId(null);
+                    await refreshUsers();
+                  } catch (e: any) {
+                    setUserDetailErr(e?.message ?? "Failed to delete user");
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            ) : null}
+            <button className="btn" onClick={() => setSelectedUserId(null)}>
+              Done
+            </button>
+          </div>
         }
       >
         {loadingDetail ? <div className="muted">Loading…</div> : null}
@@ -219,6 +264,48 @@ export function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            {canManageUsers ? (
+              <div className="card" style={{ boxShadow: "none" }}>
+                <div className="cardBody" style={{ padding: 12 }}>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Update role (ADMIN/PM)
+                  </div>
+                  <div style={{ height: 8 }} />
+                  <div className="row">
+                    <div>
+                      <select className="input" value={editRole} onChange={(e) => setEditRole(e.target.value)}>
+                        <option value="USER">USER</option>
+                        <option value="PM">PM</option>
+                        <option value="ADMIN">ADMIN</option>
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "end", justifyContent: "flex-end" }}>
+                      <button
+                        className="btn btnPrimary"
+                        disabled={saving || selectedUserId == null || editRole === (userDetail.role ?? "").toString().toUpperCase()}
+                        onClick={async () => {
+                          if (selectedUserId == null) return;
+                          setSaving(true);
+                          setUserDetailErr(null);
+                          try {
+                            const updated = await updateUser(selectedUserId, { role: editRole });
+                            setUserDetail(updated);
+                            await refreshUsers();
+                          } catch (e: any) {
+                            setUserDetailErr(e?.message ?? "Failed to update user");
+                          } finally {
+                            setSaving(false);
+                          }
+                        }}
+                      >
+                        {saving ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </Drawer>

@@ -144,12 +144,12 @@ def change_status(
     allowed = ["TODO", "IN_PROGRESS", "DONE"]
 
     if status not in allowed:
-        return {"error": "Invalid status"}
+        raise HTTPException(status_code=400, detail="Invalid status")
 
     task = db.query(Task).filter(Task.id == task_id).first()
 
     if not task:
-        return {"error": "Task not found"}
+        raise HTTPException(status_code=404, detail="Task not found")
 
     task.status = status
 
@@ -157,3 +157,25 @@ def change_status(
     db.refresh(task)
 
     return format_task_response(task, db)
+
+
+# Delete Task
+@router.delete("/{task_id}")
+def delete_task(
+    task_id: int,
+    db=Depends(get_db),
+    user=Depends(get_current_user)
+):
+    task = db.query(Task).filter(Task.id == task_id).first()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Allow ADMIN/PM always; allow creator to delete own task.
+    if user.role not in ["ADMIN", "PM"] and int(task.created_by) != int(user.id):
+        raise HTTPException(status_code=403, detail="Not allowed to delete this task")
+
+    db.delete(task)
+    db.commit()
+
+    return {"message": "Task deleted"}
