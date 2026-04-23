@@ -6,6 +6,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import datetime
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.core.security import get_current_user
+from app.utils.membership import add_project_member, ensure_project_members_table, require_project_access
 
 security = HTTPBearer()
 
@@ -25,19 +26,30 @@ def create_project(
             detail=f"User with role '{request.state.role}' is not allowed to create projects"
         )
 
-    db.execute(text("""
-    INSERT INTO projects (name, created_by, created_at, updated_at)
-    VALUES (:name, :created_by, :created_at, :updated_at)
-"""), {
-    "name": data.name,
-    "created_by": request.state.user_id,
-    "created_at": datetime.utcnow(),
-    "updated_at": datetime.utcnow()
-})
+    ensure_project_members_table(db)
+
+    inserted = db.execute(
+        text(
+            """
+            INSERT INTO projects (name, created_by, created_at, updated_at)
+            VALUES (:name, :created_by, :created_at, :updated_at)
+            RETURNING id
+            """
+        ),
+        {
+            "name": data.name,
+            "created_by": request.state.user_id,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        },
+    ).fetchone()
 
     db.commit()
 
-    return {"message": "Project created successfully"}
+    project_id = int(inserted[0])
+    add_project_member(db, project_id=project_id, user_id=int(request.state.user_id))
+
+    return {"message": "Project created successfully", "id": project_id}
 
 
 @router.get("/")
@@ -46,10 +58,32 @@ def get_projects(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
-    result = db.execute(text("""
-        SELECT id, name, created_by, created_at
-        FROM projects
-    """)).mappings().all()
+    ensure_project_members_table(db)
+
+    role = (request.state.role or "").upper()
+    if role == "ADMIN":
+        result = db.execute(
+            text(
+                """
+                SELECT id, name, created_by, created_at
+                FROM projects
+                ORDER BY id
+                """
+            )
+        ).mappings().all()
+    else:
+        result = db.execute(
+            text(
+                """
+                SELECT p.id, p.name, p.created_by, p.created_at
+                FROM projects p
+                JOIN project_members pm ON pm.project_id = p.id
+                WHERE pm.user_id = :user_id
+                ORDER BY p.id
+                """
+            ),
+            {"user_id": int(request.state.user_id)},
+        ).mappings().all()
 
     return {"projects": result}
 
@@ -61,6 +95,13 @@ def get_project_detail(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
+    require_project_access(
+        db,
+        project_id=project_id,
+        user_id=int(request.state.user_id),
+        role=(request.state.role or ""),
+    )
+
     result = db.execute(text("""
         SELECT id, name, created_by, created_at
         FROM projects
@@ -84,6 +125,13 @@ def update_project(
     role = (getattr(current_user, "role", None) or request.state.role or "").upper()
     if role not in ["ADMIN", "PM"]:
         raise HTTPException(status_code=403, detail="Only ADMIN or PM can update projects")
+
+    require_project_access(
+        db,
+        project_id=project_id,
+        user_id=int(request.state.user_id),
+        role=role,
+    )
 
     existing = db.execute(
         text("SELECT id FROM projects WHERE id = :id"),
@@ -118,6 +166,13 @@ def delete_project(
     role = (getattr(current_user, "role", None) or request.state.role or "").upper()
     if role not in ["ADMIN", "PM"]:
         raise HTTPException(status_code=403, detail="Only ADMIN or PM can delete projects")
+
+    require_project_access(
+        db,
+        project_id=project_id,
+        user_id=int(request.state.user_id),
+        role=role,
+    )
 
     existing = db.execute(
         text("SELECT id FROM projects WHERE id = :id"),

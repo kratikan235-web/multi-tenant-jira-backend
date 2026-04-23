@@ -19,8 +19,19 @@ export type TaskCreate = {
   assigned_to?: number | null;
 };
 
-export async function getTasks(projectId: number) {
-  const { data } = await http.get<Task[]>("/tasks/", { params: { project_id: projectId } });
+export async function getTasks(
+  projectId: number,
+  filters?: { status?: string; assigned_to?: number; mine?: boolean; priority?: string }
+) {
+  const { data } = await http.get<Task[]>("/tasks/", {
+    params: {
+      project_id: projectId,
+      status: filters?.status,
+      assigned_to: filters?.assigned_to,
+      mine: filters?.mine,
+      priority: filters?.priority
+    }
+  });
   return data;
 }
 

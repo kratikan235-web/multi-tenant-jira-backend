@@ -26,6 +26,7 @@ export function TasksPage() {
   const auth = useAuth();
   const role = (auth.claims?.role ?? "UNKNOWN").toString().toUpperCase();
   const canCreate = role === "ADMIN" || role === "PM";
+  const canDelete = role === "ADMIN" || role === "PM";
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -35,6 +36,9 @@ export function TasksPage() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const [filterStatus, setFilterStatus] = useState<"" | "TODO" | "IN_PROGRESS" | "DONE">("");
+  const [filterAssignee, setFilterAssignee] = useState<"all" | "mine">("all");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -70,7 +74,10 @@ export function TasksPage() {
     setLoading(true);
     setErr(null);
     try {
-      const data = await getTasks(pid);
+      const data = await getTasks(pid, {
+        status: filterStatus || undefined,
+        mine: filterAssignee === "mine" ? true : undefined
+      });
       setTasks(data);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to load tasks");
@@ -86,7 +93,7 @@ export function TasksPage() {
 
   useEffect(() => {
     if (projectId != null) void loadTasks(projectId);
-  }, [projectId]);
+  }, [projectId, filterStatus, filterAssignee]);
 
   const buckets = useMemo(() => groupByStatus(tasks), [tasks]);
 
@@ -127,6 +134,22 @@ export function TasksPage() {
                     {p.name} (#{p.id})
                   </option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Status filter</label>
+              <select className="input" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)}>
+                <option value="">All</option>
+                <option value="TODO">Todo</option>
+                <option value="IN_PROGRESS">In progress</option>
+                <option value="DONE">Done</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Assignee filter</label>
+              <select className="input" value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value as any)}>
+                <option value="all">All</option>
+                <option value="mine">Assigned to me</option>
               </select>
             </div>
             <div style={{ display: "flex", alignItems: "end", justifyContent: "flex-end", gap: 10 }}>
@@ -308,28 +331,30 @@ export function TasksPage() {
         onClose={() => setSelectedTaskId(null)}
         footer={
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button
-              className="btn"
-              disabled={deleting || selectedTaskId == null}
-              onClick={async () => {
-                if (selectedTaskId == null) return;
-                const ok = window.confirm("Delete this task?");
-                if (!ok) return;
-                setDeleting(true);
-                setTaskDetailErr(null);
-                try {
-                  await deleteTask(selectedTaskId);
-                  setSelectedTaskId(null);
-                  if (projectId != null) await loadTasks(projectId);
-                } catch (e: any) {
-                  setTaskDetailErr(e?.message ?? "Failed to delete task");
-                } finally {
-                  setDeleting(false);
-                }
-              }}
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </button>
+            {canDelete ? (
+              <button
+                className="btn"
+                disabled={deleting || selectedTaskId == null}
+                onClick={async () => {
+                  if (selectedTaskId == null) return;
+                  const ok = window.confirm("Delete this task?");
+                  if (!ok) return;
+                  setDeleting(true);
+                  setTaskDetailErr(null);
+                  try {
+                    await deleteTask(selectedTaskId);
+                    setSelectedTaskId(null);
+                    if (projectId != null) await loadTasks(projectId);
+                  } catch (e: any) {
+                    setTaskDetailErr(e?.message ?? "Failed to delete task");
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            ) : null}
             <button className="btn" onClick={() => setSelectedTaskId(null)}>
               Done
             </button>

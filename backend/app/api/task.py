@@ -6,8 +6,9 @@ from fastapi.security import HTTPBearer
 from app.models.task import Task
 from app.core.security import get_current_user
 from sqlalchemy import text
-from typing import List
+from typing import List, Optional
 from app.utils.task import format_task_response
+from app.utils.membership import add_project_member, require_project_access
 
 security = HTTPBearer()
 
@@ -16,7 +17,8 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 # Create Task
 @router.post("/", response_model=TaskResponse)
 def create_task(task: TaskCreate, db=Depends(get_db), user=Depends(get_current_user)):
-    
+    require_project_access(db, project_id=task.project_id, user_id=int(user.id), role=(user.role or ""))
+
     new_task = Task(
         title=task.title,
         description=task.description,
@@ -30,12 +32,20 @@ def create_task(task: TaskCreate, db=Depends(get_db), user=Depends(get_current_u
     db.commit()
     db.refresh(new_task)
 
+    # If assigned, ensure assignee is a project member too.
+    if task.assigned_to:
+        add_project_member(db, project_id=int(task.project_id), user_id=int(task.assigned_to))
+
     return format_task_response(new_task, db)
 
 # Get Task by project_id
 @router.get("/", response_model=List[TaskResponse])
 def get_tasks(
     project_id: int,
+    status: Optional[str] = None,
+    assigned_to: Optional[int] = None,
+    mine: Optional[bool] = None,
+    priority: Optional[str] = None,
     db=Depends(get_db),
     user=Depends(get_current_user)
 ):
@@ -48,8 +58,23 @@ def get_tasks(
 
     if not project:
         raise HTTPException(status_code=404, detail="Project not exists")
+
+    require_project_access(db, project_id=project_id, user_id=int(user.id), role=(user.role or ""))
     
-    tasks = db.query(Task).filter(Task.project_id == project_id).all()
+    q = db.query(Task).filter(Task.project_id == project_id)
+
+    if status:
+        q = q.filter(Task.status == status)
+
+    if priority:
+        q = q.filter(Task.priority == priority)
+
+    if mine:
+        q = q.filter(Task.assigned_to == int(user.id))
+    elif assigned_to is not None:
+        q = q.filter(Task.assigned_to == assigned_to)
+
+    tasks = q.order_by(Task.id.desc()).all()
 
     return [format_task_response(task, db) for task in tasks]
 
@@ -64,6 +89,8 @@ def get_task_detail(
 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    require_project_access(db, project_id=int(task.project_id), user_id=int(user.id), role=(user.role or ""))
 
     return format_task_response(task, db)
      
@@ -80,6 +107,8 @@ def update_task(
 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    require_project_access(db, project_id=int(task.project_id), user_id=int(user.id), role=(user.role or ""))
 
     if data.title is not None:
         task.title = data.title
@@ -116,6 +145,8 @@ def assign_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    require_project_access(db, project_id=int(task.project_id), user_id=int(user.id), role=(user.role or ""))
+
     # check user exists
     assigned_user = db.execute(
         text("SELECT id FROM users WHERE id = :id"),
@@ -131,6 +162,7 @@ def assign_task(
     db.refresh(task)
 
     # return {"message": "Task assigned"}
+    add_project_member(db, project_id=int(task.project_id), user_id=int(user_id))
     return format_task_response(task, db)
 
 # Update status
@@ -150,6 +182,8 @@ def change_status(
 
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    require_project_access(db, project_id=int(task.project_id), user_id=int(user.id), role=(user.role or ""))
 
     task.status = status
 
@@ -171,9 +205,11 @@ def delete_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Allow ADMIN/PM always; allow creator to delete own task.
-    if user.role not in ["ADMIN", "PM"] and int(task.created_by) != int(user.id):
-        raise HTTPException(status_code=403, detail="Not allowed to delete this task")
+    require_project_access(db, project_id=int(task.project_id), user_id=int(user.id), role=(user.role or ""))
+
+    # Only ADMIN/PM can delete tasks.
+    if user.role not in ["ADMIN", "PM"]:
+        raise HTTPException(status_code=403, detail="Only ADMIN or PM can delete tasks")
 
     db.delete(task)
     db.commit()
