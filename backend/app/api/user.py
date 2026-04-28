@@ -54,6 +54,16 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
     with engine.connect() as conn:
         conn.execute(text(f'SET search_path TO "{schema}"'))
         Base.metadata.create_all(bind=conn)
+
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS project_members (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            added_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE (project_id, user_id)
+        )
+    """))
         conn.commit()
 
     # 4. CREATE ADMIN (use same schema explicitly)

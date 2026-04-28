@@ -6,7 +6,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import datetime
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.core.security import get_current_user
-from app.utils.membership import add_project_member, ensure_project_members_table, require_project_access
+from app.utils.membership import add_project_member, require_project_access
 
 security = HTTPBearer()
 
@@ -26,7 +26,6 @@ def create_project(
             detail=f"User with role '{request.state.role}' is not allowed to create projects"
         )
 
-    ensure_project_members_table(db)
 
     inserted = db.execute(
         text(
@@ -58,7 +57,6 @@ def get_projects(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
-    ensure_project_members_table(db)
 
     role = (request.state.role or "").upper()
     if role == "ADMIN":
